@@ -27,20 +27,28 @@ import (
 // SessionManager keeps track of all sessions from creation, updating
 // to destroying.
 type SessionManager struct {
-	sessions     map[string]Session
-	sessionsLock sync.Mutex
+	sessions      map[string]Session
+	sessionsLock  sync.Mutex
+	expireChannel chan expireMessage
 }
 
 // Session stores the session's data
 type Session struct {
-	Data       map[string]interface{}
-	lastUpdate time.Time
+	Data        map[string]interface{}
+	version     uint64
+	expireTimer *time.Timer
+}
+
+type expireMessage struct {
+	sessionID      string
+	sessionVersion uint64
 }
 
 // NewSessionManager creates a new sessionManager
 func NewSessionManager() *SessionManager {
 	m := &SessionManager{
-		sessions: make(map[string]Session),
+		sessions:      make(map[string]Session),
+		expireChannel: make(chan expireMessage),
 	}
 
 	go m.sessionCleaner()
@@ -50,16 +58,20 @@ func NewSessionManager() *SessionManager {
 
 func (m *SessionManager) sessionCleaner() {
 	for {
-		time.Sleep(1 * time.Second)
+		msg := <-m.expireChannel
 
 		m.sessionsLock.Lock()
-		for k, v := range m.sessions {
-			if time.Since(v.lastUpdate) > 5*time.Second {
-				delete(m.sessions, k)
-			}
+		session := m.sessions[msg.sessionID]
+		// Only delete the session if it hasn't been updated concurrently with the expiration message send
+		if session.version == msg.sessionVersion {
+			delete(m.sessions, msg.sessionID)
 		}
 		m.sessionsLock.Unlock()
 	}
+}
+
+func (m *SessionManager) getSessionExpireTimer(sessionID string, sessionVersion uint64) *time.Timer {
+	return time.AfterFunc(5*time.Second, func() { m.expireChannel <- expireMessage{sessionID, sessionVersion} })
 }
 
 // CreateSession creates a new session and returns the sessionID
@@ -73,8 +85,8 @@ func (m *SessionManager) CreateSession() (string, error) {
 	defer m.sessionsLock.Unlock()
 
 	m.sessions[sessionID] = Session{
-		Data:       make(map[string]interface{}),
-		lastUpdate: time.Now(),
+		Data:        make(map[string]interface{}),
+		expireTimer: m.getSessionExpireTimer(sessionID, 0),
 	}
 
 	return sessionID, nil
@@ -102,15 +114,18 @@ func (m *SessionManager) UpdateSessionData(sessionID string, data map[string]int
 	m.sessionsLock.Lock()
 	defer m.sessionsLock.Unlock()
 
-	_, ok := m.sessions[sessionID]
+	session, ok := m.sessions[sessionID]
 	if !ok {
 		return ErrSessionNotFound
 	}
 
 	// Hint: you should renew expiry of the session here
+	session.expireTimer.Stop()
+	newVersion := session.version + 1
 	m.sessions[sessionID] = Session{
-		Data:       data,
-		lastUpdate: time.Now(),
+		Data:        data,
+		version:     newVersion,
+		expireTimer: m.getSessionExpireTimer(sessionID, newVersion),
 	}
 
 	return nil
