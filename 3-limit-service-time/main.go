@@ -10,7 +10,10 @@
 
 package main
 
-import "time"
+import (
+	"sync/atomic"
+	"time"
+)
 
 // User defines the UserModel. Use this to check whether a User is a
 // Premium user or not
@@ -36,15 +39,15 @@ func HandleRequest(process func(), u *User) bool {
 		case <-processFinished:
 			finished = true
 		case <-time.After(1 * time.Second):
-			u.TimeUsed++
+			newTimeUsed := atomic.AddInt64(&u.TimeUsed, 1)
 
-			if !u.IsPremium && u.TimeUsed > 10 {
+			if !u.IsPremium && newTimeUsed > 10 {
 				finished = true
 			}
 		}
 	}
 
-	return u.IsPremium || u.TimeUsed <= 10
+	return u.IsPremium || atomic.LoadInt64(&u.TimeUsed) <= 10
 }
 
 func main() {
