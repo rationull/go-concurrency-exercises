@@ -28,7 +28,7 @@ import (
 // to destroying.
 type SessionManager struct {
 	sessions      map[string]Session
-	sessionsLock  sync.Mutex
+	sessionsLock  sync.RWMutex
 	expireChannel chan expireMessage
 }
 
@@ -99,8 +99,8 @@ var ErrSessionNotFound = errors.New("SessionID does not exists")
 // GetSessionData returns data related to session if sessionID is
 // found, errors otherwise
 func (m *SessionManager) GetSessionData(sessionID string) (map[string]interface{}, error) {
-	m.sessionsLock.Lock()
-	defer m.sessionsLock.Unlock()
+	m.sessionsLock.RLock()
+	defer m.sessionsLock.RUnlock()
 
 	session, ok := m.sessions[sessionID]
 	if !ok {
