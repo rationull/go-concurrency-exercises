@@ -28,7 +28,7 @@ type KeyStoreCache struct {
 	pages list.List
 	load  func(string) string
 
-	pagesLock sync.Mutex
+	cacheLock sync.Mutex
 }
 
 // New creates a new KeyStoreCache
@@ -41,38 +41,25 @@ func New(load KeyStoreCacheLoader) *KeyStoreCache {
 
 // Get gets the key from cache, loads it from the source if needed
 func (k *KeyStoreCache) Get(key string) string {
+	k.cacheLock.Lock()
+	defer k.cacheLock.Unlock()
+
 	val, ok := k.cache[key]
 
 	// Miss - load from database and save it in cache
 	if !ok {
 		val = k.load(key)
 		k.cache[key] = val
-		k.addPage(key)
+		k.pages.PushFront(key)
 
 		// if cache is full remove the least used item
 		if len(k.cache) > CacheSize {
-			removed := k.removeBackPage()
-			delete(k.cache, removed)
+			backPage := k.pages.Back()
+			toRemove := backPage.Value.(string)
+			k.pages.Remove(backPage)
+			delete(k.cache, toRemove)
 		}
 	}
-
-	return val
-}
-
-func (k *KeyStoreCache) addPage(key string) {
-	k.pagesLock.Lock()
-	defer k.pagesLock.Unlock()
-
-	k.pages.PushFront(key)
-}
-
-func (k *KeyStoreCache) removeBackPage() string {
-	k.pagesLock.Lock()
-	defer k.pagesLock.Unlock()
-
-	page := k.pages.Back()
-	val := page.Value.(string)
-	k.pages.Remove(page)
 
 	return val
 }
