@@ -46,6 +46,7 @@ func (k *KeyStoreCache) Get(key string) string {
 	// Miss - load from database and save it in cache
 	if !ok {
 		val = k.load(key)
+		k.cache[key] = val
 		k.addPage(key)
 
 		// if cache is full remove the least used item
@@ -91,11 +92,17 @@ func (l *Loader) Load(key string) string {
 	return val
 }
 
-func main() {
+func run() *KeyStoreCache {
 	loader := Loader{
 		DB: GetMockDB(),
 	}
 	cache := New(&loader)
 
 	RunMockServer(cache)
+
+	return cache
+}
+
+func main() {
+	run()
 }
